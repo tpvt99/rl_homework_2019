@@ -23,7 +23,7 @@ class PGAgent(BaseAgent):
             # which indicates similar network structure (layout/inputs/outputs), 
             # but differences in training procedure 
             # between supervised learning and policy gradients
-        self.actor = MLPPolicyPG(sess, 
+        self.actor = MLPPolicyPG(#sess,
                                  self.agent_params['ac_dim'],
                                  self.agent_params['ob_dim'],
                                  self.agent_params['n_layers'],
@@ -97,7 +97,7 @@ class PGAgent(BaseAgent):
             # HINT1: value of each point (t) = total discounted reward summed over the entire trajectory (from 0 to T-1)
                 # In other words, q(s_t, a_t) = sum_{t'=0}^{T-1} gamma^t' r_{t'}
             # Hint3: see the helper functions at the bottom of this file
-            q_values = np.concatenate([TODO for r in rews_list])
+            q_values = np.concatenate([self._discounted_return(r) for r in rews_list])
 
         # Case 2: reward-to-go PG 
         else:
@@ -106,7 +106,7 @@ class PGAgent(BaseAgent):
             # HINT1: value of each point (t) = total discounted reward summed over the remainder of that trajectory (from t to T-1)
                 # In other words, q(s_t, a_t) = sum_{t'=t}^{T-1} gamma^(t'-t) * r_{t'}
             # Hint3: see the helper functions at the bottom of this file
-            q_values = np.concatenate([TODO for r in rews_list])
+            q_values = np.concatenate([self._discounted_cumsum(r) for r in rews_list])
 
         return q_values
 
@@ -193,17 +193,17 @@ class PGAgent(BaseAgent):
         for start_time_index in range(len(rewards)): 
 
             # 1) create a list of indices (t'): goes from t to T-1
-            indices = TODO
+            indices = [i for i in range(start_time_index, len(rewards))]
 
             # 2) create a list where the entry at each index (t') is gamma^(t'-t)
-            discounts = TODO
+            discounts = [self.gamma**(indice - start_time_index) for indice in indices]
 
             # 3) create a list where the entry at each index (t') is gamma^(t'-t) * r_{t'}
             # Hint: remember that t' goes from t to T-1, so you should use the rewards from those indices as well
-            discounted_rtg = TODO
+            discounted_rtg = [discount * rew for discount, rew in zip(discounts, rewards[indices])]
 
             # 4) calculate a scalar: sum_{t'=t}^{T-1} gamma^(t'-t) * r_{t'}
-            sum_discounted_rtg = TODO
+            sum_discounted_rtg = sum(discounted_rtg)
 
             # appending each of these calculated sums into the list to return
             all_discounted_cumsums.append(sum_discounted_rtg)
