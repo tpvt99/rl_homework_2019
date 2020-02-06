@@ -66,7 +66,7 @@ class RL_Trainer(object):
         #############
 
         agent_class = self.params['agent_class']
-        self.agent = agent_class(self.sess, self.env, self.params['agent_params'])
+        self.agent = agent_class(self.env, self.params['agent_params'])
 
         #############
         ## INIT VARS

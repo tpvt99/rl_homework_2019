@@ -27,19 +27,20 @@ class BUILD_MLP(Model): # PHONG
         super(BUILD_MLP, self).__init__()
         self.ff_layers = []
         self.n_layers = n_layers
+        self.scope = scope
+
         for i in range(n_layers):
             if i == 0:
                 self.ff_layers.append(tf.keras.layers.Dense(units = size, activation = activation, input_shape = (input_size,)))
             else:
                 self.ff_layers.append(tf.keras.layers.Dense(units=size, activation=activation))
         self.ff_layers.append(tf.keras.layers.Dense(units = output_size, activation = output_activation))
-        self.logstd = tf.Variable(initial_value=tf.zeros(output_size), name='logstd')
 
     def call(self, input):
         for layer in self.ff_layers:
             input = layer(input)
-        output = input + tf.math.exp(self.logstd) * tf.random.normal(tf.shape(input), 0, 1)
-        return output
+
+        return input
 
 def build_mlp(input_placeholder, output_size, scope, n_layers, size, activation=tf.tanh, output_activation=None):
     

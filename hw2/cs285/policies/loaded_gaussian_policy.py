@@ -5,7 +5,7 @@ import tensorflow_probability as tfp
 import pickle
 
 class Loaded_Gaussian_Policy(BasePolicy):
-    def __init__(self, sess, filename, **kwargs):
+    def __init__(self, filename, **kwargs):
         super().__init__(**kwargs)
 
         #self.sess = sess
@@ -55,7 +55,7 @@ class Loaded_Gaussian_Policy(BasePolicy):
 
         # Output layer
         W, b = self.read_layer(self.policy_params['out'])
-        self.output_bo = tf.matmul(curr_activations_bd, W) + b
+        return tf.matmul(curr_activations_bd, W) + b
 
     def read_layer(self, l):
         assert list(l.keys()) == ['AffineLayer']

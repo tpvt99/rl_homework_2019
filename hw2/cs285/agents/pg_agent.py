@@ -6,7 +6,7 @@ from cs285.infrastructure.replay_buffer import ReplayBuffer
 from cs285.infrastructure.utils import *
 
 class PGAgent(BaseAgent):
-    def __init__(self, sess, env, agent_params):
+    def __init__(self, env, agent_params):
         super(PGAgent, self).__init__()
 
         # init vars
@@ -70,7 +70,7 @@ class PGAgent(BaseAgent):
         # step 3:
         # TODO: pass the calculated values above into the actor/policy's update, 
         # which will perform the actual PG update step
-        loss = self.actor.update(obs, acs, qvals=TODO, adv_n=TODO)
+        loss = self.actor.update(obs, acs, qvals=q_values, adv_n=advantage_values)
         return loss
 
     def calculate_q_vals(self, rews_list):
@@ -121,9 +121,9 @@ class PGAgent(BaseAgent):
             # extra hint if you're stuck: see your actor's run_baseline_prediction
         # HINT2: advantage should be [Q-b]
         if self.nn_baseline:
-            b_n_unnormalized = TODO
+            b_n_unnormalized = self.actor.run_baseline_prediction(obs)
             b_n = b_n_unnormalized * np.std(q_values) + np.mean(q_values)
-            adv_n = TODO
+            adv_n = q_values - b_n
 
         # Else, just set the advantage to [Q]
         else:
