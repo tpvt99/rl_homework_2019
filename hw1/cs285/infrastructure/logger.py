@@ -24,7 +24,6 @@ class Logger:
 
     def log_video(self, video_frames, name, step, fps=10):
         assert len(video_frames.shape) == 5, "Need [N, T, C, H, W] input tensor for video logging!"
-        print('It is in log_video to save video')
         self._summ_writer.add_video('{}'.format(name), video_frames, step, fps=fps)
 
     def log_paths_as_videos(self, paths, step, max_videos_to_save=2, fps=10, video_title='video'):
