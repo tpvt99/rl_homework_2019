@@ -44,21 +44,15 @@ class ReplayBuffer(object):
             self.obs = np.concatenate([self.obs, observations])[-self.max_size:]
             self.acs = np.concatenate([self.acs, actions])[-self.max_size:]
             if concat_rew:
-                self.rews = np.concatenate(
-                    [self.rews, rewards]
-                )[-self.max_size:]
+                self.rews = np.concatenate([self.rews, rewards])[-self.max_size:]
             else:
                 if isinstance(rewards, list):
                     self.rews += rewards
                 else:
                     self.rews.append(rewards)
                 self.rews = self.rews[-self.max_size:]
-            self.next_obs = np.concatenate(
-                [self.next_obs, next_observations]
-            )[-self.max_size:]
-            self.terminals = np.concatenate(
-                [self.terminals, terminals]
-            )[-self.max_size:]
+            self.next_obs = np.concatenate([self.next_obs, next_observations])[-self.max_size:]
+            self.terminals = np.concatenate([self.terminals, terminals])[-self.max_size:]
 
     ########################################
     ########################################
@@ -77,7 +71,9 @@ class ReplayBuffer(object):
         ## HINT 2: return corresponding data points from each array (i.e., not different indices from each array)
         ## HINT 3: look at the sample_recent_data function below
 
-        return TODO, TODO, TODO, TODO, TODO
+        perms = np.random.permutation(len(self.obs))[:batch_size]
+
+        return self.obs[perms], self.acs[perms], self.rews[perms], self.next_obs[perms], self.terminals[perms]
 
     def sample_recent_data(self, batch_size=1):
         return (

@@ -1,20 +1,18 @@
 import numpy as np
 
-from cs285.infrastructure import pytorch_util as ptu
 from .base_policy import BasePolicy
-from torch import nn
-import torch
+import tensorflow as tf
 import pickle
 
-
-def create_linear_layer(W, b) -> nn.Linear:
-    out_features, in_features = W.shape
-    linear_layer = nn.Linear(
-        in_features,
-        out_features,
+def create_linear_layer(W, b) -> tf.keras.layers.Layer:
+    in_features, out_features = W.shape
+    linear_layer = tf.keras.layers.Dense(
+        input_dim = in_features, units = out_features
     )
-    linear_layer.weight.data = ptu.from_numpy(W.T)
-    linear_layer.bias.data = ptu.from_numpy(b[0])
+    # Call to initialize weights
+    linear_layer(tf.random.normal(shape = (1, in_features)))
+    linear_layer.kernel.assign(W)
+    linear_layer.bias.assign(b[0])
     return linear_layer
 
 
@@ -25,7 +23,7 @@ def read_layer(l):
         'b'].astype(np.float32)
 
 
-class LoadedGaussianPolicy(BasePolicy, nn.Module):
+class LoadedGaussianPolicy(BasePolicy, tf.Module):
     def __init__(self, filename, **kwargs):
         super().__init__(**kwargs)
 
@@ -34,9 +32,10 @@ class LoadedGaussianPolicy(BasePolicy, nn.Module):
 
         self.nonlin_type = data['nonlin_type']
         if self.nonlin_type == 'lrelu':
-            self.non_lin = nn.LeakyReLU(0.01)
+            #self.non_lin = tf.keras.layers.LeakyReLU(0.01)
+            self.non_lin = tf.keras.layers.LeakyReLU(0.01)
         elif self.nonlin_type == 'tanh':
-            self.non_lin = nn.Tanh()
+            self.non_lin = tf.keras.layers.Activation('tanh')
         else:
             raise NotImplementedError()
         policy_type = [k for k in data.keys() if k != 'nonlin_type'][0]
@@ -59,9 +58,12 @@ class LoadedGaussianPolicy(BasePolicy, nn.Module):
             np.maximum(0, obsnorm_meansq - np.square(obsnorm_mean)))
         print('obs', obsnorm_mean.shape, obsnorm_stdev.shape)
 
-        self.obs_norm_mean = nn.Parameter(ptu.from_numpy(obsnorm_mean))
-        self.obs_norm_std = nn.Parameter(ptu.from_numpy(obsnorm_stdev))
-        self.hidden_layers = nn.ModuleList()
+        #self.obs_norm_mean = nn.Parameter(ptu.from_numpy(obsnorm_mean))
+        #self.obs_norm_std = nn.Parameter(ptu.from_numpy(obsnorm_stdev))
+        #self.hidden_layers = nn.ModuleList()
+        self.obs_norm_mean = obsnorm_mean
+        self.obs_norm_std = obsnorm_stdev
+        self.hidden_layers = []
 
         # Hidden layers next
         assert list(self.policy_params['hidden'].keys()) == ['FeedforwardNet']
@@ -81,7 +83,11 @@ class LoadedGaussianPolicy(BasePolicy, nn.Module):
         h = normed_obs
         for layer in self.hidden_layers:
             h = layer(h)
-            h = self.non_lin(h)
+            #h = self.non_lin(h)
+            if self.nonlin_type == 'lrelu':
+                h = tf.keras.layers.LeakyReLU(0.01)(h)
+            elif self.nonlin_type == 'tanh':
+                h = tf.keras.layers.Activation('tanh')(h)
         return self.output_layer(h)
 
     ##################################
@@ -97,9 +103,9 @@ class LoadedGaussianPolicy(BasePolicy, nn.Module):
             observation = obs
         else:
             observation = obs[None, :]
-        observation = ptu.from_numpy(observation.astype(np.float32))
-        action = self(observation)
-        return ptu.to_numpy(action)
+        action = self.forward(observation)
+        return action.numpy()
 
     def save(self, filepath):
-        torch.save(self.state_dict(), filepath)
+        with open(filepath, 'wb') as fo:
+            pickle.dump(self.trainable_variables, fo)

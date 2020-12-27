@@ -1,19 +1,17 @@
 import abc
 import itertools
 from typing import Any
-from torch import nn
-from torch.nn import functional as F
-from torch import optim
+import pickle
 
 import numpy as np
-import torch
-from torch import distributions
+import tensorflow as tf
+import tensorflow_probability as tfp
 
-from cs285.infrastructure import pytorch_util as ptu
+from cs285.infrastructure import tf_util as tfu
 from cs285.policies.base_policy import BasePolicy
 
 
-class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
+class MLPPolicy(BasePolicy, tf.Module, metaclass=abc.ABCMeta):
 
     def __init__(self,
                  ac_dim,
@@ -39,38 +37,35 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         self.nn_baseline = nn_baseline
 
         if self.discrete:
-            self.logits_na = ptu.build_mlp(
-                input_size=self.ob_dim,
-                output_size=self.ac_dim,
-                n_layers=self.n_layers,
-                size=self.size,
-            )
-            self.logits_na.to(ptu.device)
+            with tf.name_scope("logits") as scope:
+                self.logits_na = tfu.build_mlp(
+                    input_size=self.ob_dim,
+                    output_size=self.ac_dim,
+                    n_layers=self.n_layers,
+                    size=self.size,
+                    scope=scope
+                )
             self.mean_net = None
             self.logstd = None
-            self.optimizer = optim.Adam(self.logits_na.parameters(),
-                                        self.learning_rate)
         else:
             self.logits_na = None
-            self.mean_net = ptu.build_mlp(
-                input_size=self.ob_dim,
-                output_size=self.ac_dim,
-                n_layers=self.n_layers, size=self.size,
-            )
-            self.mean_net.to(ptu.device)
-            self.logstd = nn.Parameter(
-                torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
-            )
-            self.logstd.to(ptu.device)
-            self.optimizer = optim.Adam(
-                itertools.chain([self.logstd], self.mean_net.parameters()),
-                self.learning_rate
-            )
+            with tf.name_scope("mean") as scope:
+                self.mean_net = tfu.build_mlp(
+                    input_size=self.ob_dim,
+                    output_size=self.ac_dim,
+                    n_layers=self.n_layers,
+                    size=self.size,
+                    scope=scope
+                )
+            self.logstd = tf.Variable(initial_value=tf.zeros(shape = self.ac_dim, dtype = tf.dtypes.float32),
+                                      trainable=True, name = "logstd")
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate = self.learning_rate)
 
     ##################################
 
     def save(self, filepath):
-        torch.save(self.state_dict(), filepath)
+        with open(filepath, 'wb') as f:
+            pickle.dump(self.trainable_variables, f)
 
     ##################################
 
@@ -81,7 +76,16 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             observation = obs[None]
 
         # TODO return the action that the policy prescribes
-        raise NotImplementedError
+        if self.discrete:
+            logits = self.logits_na(observation)
+            pi = tfp.distributions.Categorical(logits = logits)
+            return pi.sample().numpy()
+        else:
+            mean = self.mean_net(observation)
+            std = tf.exp(self.logstd)
+            pi = tfp.distributions.MultivariateNormalDiag(loc=mean, scale_diag=std)
+            acts = mean + tf.random.normal(shape = mean.shape) * std
+            return acts.numpy()
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
@@ -92,8 +96,22 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # through it. For example, you can return a torch.FloatTensor. You can also
     # return more flexible objects, such as a
     # `torch.distributions.Distribution` object. It's up to you!
-    def forward(self, observation: torch.FloatTensor) -> Any:
-        raise NotImplementedError
+    def forward(self, observation: np.ndarray) -> Any:
+        assert len(observation.shape) == 2
+
+        # TODO return the action that the policy prescribes
+        if self.discrete:
+            logits = self.logits_na(observation)
+            #pi = tfp.distributions.Categorical(logits=logits)
+            #acts = pi.sample()
+            return logits
+        else:
+            mean = self.mean_net(observation)
+            std = tf.exp(self.logstd)
+            pi = tfp.distributions.MultivariateNormalDiag(loc=mean, scale_diag=std)
+            acts = pi.sample()
+            acts = mean + tf.random.normal(shape=mean.shape) * std
+            return acts
 
 
 #####################################################
@@ -102,15 +120,24 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 class MLPPolicySL(MLPPolicy):
     def __init__(self, ac_dim, ob_dim, n_layers, size, **kwargs):
         super().__init__(ac_dim, ob_dim, n_layers, size, **kwargs)
-        self.loss = nn.MSELoss()
+        if self.discrete:
+            print('Using Categorical Crossentropy Loss')
+            self.loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        else:
+            self.loss = tf.keras.losses.MeanSquaredError()
 
     def update(
             self, observations, actions,
             adv_n=None, acs_labels_na=None, qvals=None
     ):
         # TODO: update the policy and return the loss
-        loss = TODO
+        with tf.GradientTape() as tape:
+            prediction_actions = self.forward(observations)
+            loss = self.loss(prediction_actions, actions)
+        gradients = tape.gradient(loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
         return {
             # You can add extra logging information here, but keep this line
-            'Training Loss': ptu.to_numpy(loss),
+            'Training Loss': loss.numpy(),
         }
