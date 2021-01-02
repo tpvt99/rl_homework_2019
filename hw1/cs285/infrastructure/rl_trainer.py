@@ -43,9 +43,6 @@ class RL_Trainer(object):
         self.params['ep_len'] = self.params['ep_len'] or self.env.spec.max_episode_steps
         MAX_VIDEO_LEN = self.params['ep_len']
 
-        #TODO, Phong
-        #self.params['batch_size'] = self.params['ep_len'] * 10 # Collect 10 trajectories
-
         # Is this env continuous, or self.discrete?
         discrete = isinstance(self.env.action_space, gym.spaces.Discrete)
         self.params['agent_params']['discrete'] = discrete
@@ -171,7 +168,7 @@ class RL_Trainer(object):
         print("\nCollecting data to be used for training...")
         paths, envsteps_this_batch = utils.sample_trajectories(env = self.env, policy = collect_policy,
                                                                min_timesteps_per_batch=batch_size,
-                                                               max_path_length=self.params['ep_len'], render=True)
+                                                               max_path_length=self.params['ep_len'])
 
         # collect more rollouts with the same policy, to be saved as videos in tensorboard
         # note: here, we collect MAX_NVIDEO rollouts, each of length MAX_VIDEO_LEN
@@ -220,8 +217,7 @@ class RL_Trainer(object):
         # collect eval trajectories, for logging
         print("\nCollecting data for eval...")
         eval_paths, eval_envsteps_this_batch = utils.sample_trajectories(self.env, eval_policy,
-                                                self.params['eval_batch_size'], self.params['ep_len'], True)
-
+                                                self.params['eval_batch_size'], self.params['ep_len'])
         # save eval rollouts as videos in tensorboard event file
         if self.log_video and train_video_paths != None:
             print('\nCollecting video rollouts eval')

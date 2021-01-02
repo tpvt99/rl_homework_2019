@@ -54,6 +54,8 @@ class ReplayBuffer(object):
             self.next_obs = np.concatenate([self.next_obs, next_observations])[-self.max_size:]
             self.terminals = np.concatenate([self.terminals, terminals])[-self.max_size:]
 
+        print(f'Length of buffer: {len(self.obs)}')
+
     ########################################
     ########################################
 

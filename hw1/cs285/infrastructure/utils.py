@@ -65,8 +65,8 @@ def sample_trajectories(env, policy, min_timesteps_per_batch, max_path_length, r
                                        render = render, render_mode=render_mode)
         path_length = get_pathlength(pathDict)
         timesteps_this_batch += path_length
+        print(f'Path Length inside: {path_length} with timestepsberbatch: {timesteps_this_batch}')
         paths.append(pathDict)
-    print('Path Length: ', path_length)
 
     return paths, timesteps_this_batch
 
@@ -83,6 +83,7 @@ def sample_n_trajectories(env, policy, ntraj, max_path_length, render=False, ren
         pathDict = sample_trajectory(env = env, policy = policy, max_path_length=max_path_length,
                                      render=render, render_mode=render_mode)
         paths.append(pathDict)
+        print(f'Lengh paths: {len(paths)} and with ...')
 
     return paths
 

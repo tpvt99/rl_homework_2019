@@ -84,7 +84,8 @@ class MLPPolicy(BasePolicy, tf.Module, metaclass=abc.ABCMeta):
             mean = self.mean_net(observation)
             std = tf.exp(self.logstd)
             pi = tfp.distributions.MultivariateNormalDiag(loc=mean, scale_diag=std)
-            acts = mean + tf.random.normal(shape = mean.shape) * std
+            acts = pi.sample()
+            #acts = mean + tf.random.normal(shape = mean.shape) * std
             return acts.numpy()
 
     # update/train this policy
@@ -110,7 +111,7 @@ class MLPPolicy(BasePolicy, tf.Module, metaclass=abc.ABCMeta):
             std = tf.exp(self.logstd)
             pi = tfp.distributions.MultivariateNormalDiag(loc=mean, scale_diag=std)
             acts = pi.sample()
-            acts = mean + tf.random.normal(shape=mean.shape) * std
+            #acts = mean + tf.random.normal(shape=mean.shape) * std
             return acts
 
 
