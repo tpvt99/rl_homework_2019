@@ -167,11 +167,12 @@ class MLPPolicyPG(MLPPolicy):
             with tf.GradientTape() as tape:
                 ## TODO: normalize the q_values to have a mean of zero and a standard deviation of one
                 ## HINT: there is a `normalize` function in `infrastructure.utils`
-                targets = normalize(q_values)
-                targets = tf.Tensor(targets, dtype=tf.float32)
+                targets = normalize(q_values, np.mean(q_values), np.std(q_values))
+                #targets = tf.Tensor(targets, dtype=tf.float32)
 
                 ## TODO: use the `forward` method of `self.baseline` to get baseline predictions
                 baseline_predictions = self.baseline(observations)
+                baseline_predictions = tf.squeeze(baseline_predictions) # Remove dimensions of size 1
 
                 ## avoid any subtle broadcasting bugs that can arise when dealing with arrays of shape
                 ## [ N ] versus shape [ N x 1 ]
@@ -180,7 +181,7 @@ class MLPPolicyPG(MLPPolicy):
 
                 # TODO: compute the loss that should be optimized for training the baseline MLP (`self.baseline`)
                 # HINT: use `F.mse_loss`
-                baseline_loss = tf.keras.losses.mean_squared_error(baseline_predictions, targets)
+                baseline_loss = 0.5 * tf.keras.losses.mean_squared_error(baseline_predictions, targets)
 
                 # TODO: optimize `baseline_loss` using `self.baseline_optimizer`
                 # HINT: remember to `zero_grad` first
