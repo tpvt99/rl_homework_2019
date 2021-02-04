@@ -6,6 +6,7 @@ from cs285.infrastructure.replay_buffer import ReplayBuffer
 from cs285.infrastructure.utils import *
 from cs285.policies.MLP_policy import MLPPolicyAC
 from .base_agent import BaseAgent
+import tensorflow as tf
 
 
 class ACAgent(BaseAgent):
@@ -40,9 +41,17 @@ class ACAgent(BaseAgent):
         # for agent_params['num_actor_updates_per_agent_update'] steps,
         #     update the actor
 
+        for step in range(self.agent_params['num_critic_updates_per_agent_update']):
+            c_loss = self.critic.update(ob_no, ac_na, next_ob_no, re_n, terminal_n)
+
+        advantage = self.estimate_advantage(ob_no, next_ob_no, re_n, terminal_n)
+
+        for step in range(self.agent_params['num_actor_updates_per_agent_update']):
+            a_loss = self.actor.update(ob_no, ac_na, advantage)
+
         loss = OrderedDict()
-        loss['Critic_Loss'] = TODO
-        loss['Actor_Loss'] = TODO
+        loss['Critic_Loss'] = c_loss
+        loss['Actor_Loss'] = a_loss
 
         return loss
 
@@ -53,7 +62,10 @@ class ACAgent(BaseAgent):
         # 3) estimate the Q value as Q(s, a) = r(s, a) + gamma*V(s')
         # HINT: Remember to cut off the V(s') term (ie set it to 0) at terminal states (ie terminal_n=1)
         # 4) calculate advantage (adv_n) as A(s, a) = Q(s, a) - V(s)
-        adv_n = TODO
+        v_s = self.critic.forward_np(ob_no).squeeze(1)
+        v_s_next = self.critic.forward_np(next_ob_no).squeeze(1)
+        q_val = re_n + self.gamma * v_s_next * (1 - terminal_n)
+        adv_n = q_val - v_s
 
         if self.standardize_advantages:
             adv_n = (adv_n - np.mean(adv_n)) / (np.std(adv_n) + 1e-8)

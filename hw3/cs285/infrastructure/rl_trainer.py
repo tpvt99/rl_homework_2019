@@ -7,8 +7,9 @@ import time
 import gym
 from gym import wrappers
 import numpy as np
-import torch
-from cs285.infrastructure import pytorch_util as ptu
+#from cs285.infrastructure import pytorch_util as ptu
+from cs285.infrastructure import tf_util as tfu
+import tensorflow as tf
 
 from cs285.infrastructure import utils
 from cs285.infrastructure.logger import Logger
@@ -39,11 +40,7 @@ class RL_Trainer(object):
         # Set random seeds
         seed = self.params['seed']
         np.random.seed(seed)
-        torch.manual_seed(seed)
-        ptu.init_gpu(
-            use_gpu=not self.params['no_gpu'],
-            gpu_id=self.params['which_gpu']
-        )
+        tf.random.set_seed(seed)
 
         #############
         ## ENV
@@ -173,8 +170,8 @@ class RL_Trainer(object):
             self.total_envsteps += envsteps_this_batch
 
             # relabel the collected obs with actions from a provided expert policy
-            if relabel_with_expert and itr>=start_relabel_with_expert:
-                paths = self.do_relabel_with_expert(expert_policy, paths)
+            #if relabel_with_expert and itr>=start_relabel_with_expert:
+            #    paths = self.do_relabel_with_expert(expert_policy, paths)
 
             # add collected data to replay buffer
             self.agent.add_to_replay_buffer(paths)
@@ -210,12 +207,40 @@ class RL_Trainer(object):
             envsteps_this_batch: the sum over the numbers of environment steps in paths
             train_video_paths: paths which also contain videos for visualization purposes
         """
-        # TODO: get this from Piazza
+        # TODO collect `batch_size` samples to be used for training
+        # HINT1: use sample_trajectories from utils
+        # HINT2: you want each of these collected rollouts to be of length self.params['ep_len']
+        print("\nCollecting data to be used for training...")
+        paths, envsteps_this_batch = utils.sample_trajectories(env=self.env, policy=collect_policy,
+                                                               min_timesteps_per_batch=num_transitions_to_sample,
+                                                               max_path_length=self.params['ep_len'])
+
+        # collect more rollouts with the same policy, to be saved as videos in tensorboard
+        # note: here, we collect MAX_NVIDEO rollouts, each of length MAX_VIDEO_LEN
+        train_video_paths = None
+        if self.logvideo:
+            print('\nCollecting train rollouts to be used for saving videos...')
+            ## TODO look in utils and implement sample_n_trajectories
+            train_video_paths = utils.sample_n_trajectories(self.env, collect_policy, MAX_NVIDEO, MAX_VIDEO_LEN, True)
 
         return paths, envsteps_this_batch, train_video_paths
 
     def train_agent(self):
-        # TODO: get this from Piazza
+        print('\nTraining agent using sampled data from replay buffer...')
+        all_logs = []
+        for train_step in range(self.params['num_agent_train_steps_per_iter']):
+            # TODO sample some data from the data buffer
+            # HINT1: use the agent's sample function
+            # HINT2: how much data = self.params['train_batch_size']
+            ob_batch, ac_batch, re_batch, next_ob_batch, terminal_batch = self.agent.sample(
+                self.params['train_batch_size'])
+
+            # TODO use the sampled data to train an agent
+            # HINT: use the agent's train function
+            # HINT: keep the agent's training log for debugging
+            train_log = self.agent.train(ob_batch, ac_batch, re_batch, next_ob_batch, terminal_batch)
+            all_logs.append(train_log)
+        return all_logs
 
     ####################################
     ####################################

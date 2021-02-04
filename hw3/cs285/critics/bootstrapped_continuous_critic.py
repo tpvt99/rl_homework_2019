@@ -1,11 +1,10 @@
 from .base_critic import BaseCritic
-from torch import nn
-from torch import optim
 
-from cs285.infrastructure import pytorch_util as ptu
+from cs285.infrastructure import tf_util as tfu
+import tensorflow as tf
+import numpy as np
 
-
-class BootstrappedContinuousCritic(nn.Module, BaseCritic):
+class BootstrappedContinuousCritic(tf.Module, BaseCritic):
     """
         Notes on notation:
 
@@ -32,26 +31,24 @@ class BootstrappedContinuousCritic(nn.Module, BaseCritic):
         self.num_target_updates = hparams['num_target_updates']
         self.num_grad_steps_per_target_update = hparams['num_grad_steps_per_target_update']
         self.gamma = hparams['gamma']
-        self.critic_network = ptu.build_mlp(
-            self.ob_dim,
-            1,
-            n_layers=self.n_layers,
-            size=self.size,
-        )
-        self.critic_network.to(ptu.device)
-        self.loss = nn.MSELoss()
-        self.optimizer = optim.Adam(
-            self.critic_network.parameters(),
-            self.learning_rate,
-        )
+        with tf.name_scope('critic') as scope:
+            self.critic_network = tfu.build_mlp(
+                input_size=self.ob_dim,
+                output_size=1,
+                n_layers=self.n_layers,
+                size=self.size,
+                scope=scope
+            )
+        self.loss = tf.keras.losses.MeanSquaredError()
+        self.loss_reports = tf.keras.metrics.Mean()
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
 
     def forward(self, obs):
-        return self.critic_network(obs).squeeze(1)
+        return self.critic_network(obs)
 
     def forward_np(self, obs):
-        obs = ptu.from_numpy(obs)
-        predictions = self(obs)
-        return ptu.to_numpy(predictions)
+        predictions = self.forward(obs)
+        return predictions.numpy()
 
     def update(self, ob_no, ac_na, next_ob_no, reward_n, terminal_n):
         """
@@ -85,5 +82,25 @@ class BootstrappedContinuousCritic(nn.Module, BaseCritic):
         #       to 0) when a terminal state is reached
         # HINT: make sure to squeeze the output of the critic_network to ensure
         #       that its dimensions match the reward
+        self.loss_reports.reset_states()
+        for _ in range(self.num_target_updates):
+            v_s_next = self.forward_np(next_ob_no)
+            v_s_next = np.squeeze(v_s_next)
+            target = reward_n + self.gamma * v_s_next * (1 - terminal_n)  # must be numpy else gradients go through target
 
-        return loss.item()
+            for _ in range(self.num_grad_steps_per_target_update):
+                with tf.GradientTape() as tape:
+
+                    pred = self.forward(ob_no)
+                    pred = tf.squeeze(pred)
+
+                    assert v_s_next.shape == reward_n.shape
+                    assert pred.shape == target.shape
+
+                    loss = self.loss(target, pred)
+                    self.loss_reports.update_state(loss)
+                gradients = tape.gradient(loss, self.trainable_variables)
+                self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
+
+        return self.loss_reports.result().numpy()

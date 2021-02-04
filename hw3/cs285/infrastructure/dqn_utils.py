@@ -5,19 +5,10 @@ from collections import namedtuple
 
 import gym
 import numpy as np
-from torch import nn
-import torch.optim as optim
 
 from cs285.infrastructure.atari_wrappers import wrap_deepmind
 from gym.envs.registration import register
-
-import torch
-
-
-class Flatten(torch.nn.Module):
-    def forward(self, x):
-        batch_size = x.shape[0]
-        return x.view(batch_size, -1)
+import tensorflow as tf
 
 OptimizerSpec = namedtuple(
     "OptimizerSpec",
@@ -81,42 +72,48 @@ def get_env_kwargs(env_name):
 
 
 def create_lander_q_network(ob_dim, num_actions):
-    return nn.Sequential(
-        nn.Linear(ob_dim, 64),
-        nn.ReLU(),
-        nn.Linear(64, 64),
-        nn.ReLU(),
-        nn.Linear(64, num_actions),
-    )
+    return tf.keras.Sequential([
+        tf.keras.Input(shape = (ob_dim,)),
+        tf.keras.layers.Dense(64),
+        tf.keras.layers.ReLU(),
+        tf.keras.layers.Dense(64),
+        tf.keras.layers.ReLU(),
+        tf.keras.layers.Dense(num_actions),
+    ])
 
-class Ipdb(nn.Module):
+class Ipdb(tf.keras.layers.Layer):
     def __init__(self):
         super().__init__()
-    def forward(self, x):
-        import ipdb; ipdb.set_trace()
+    def call(self, x, **kwargs):
+        import ipdb
+        ipdb.set_trace()
         return x
 
 
-class PreprocessAtari(nn.Module):
-    def forward(self, x):
-        x = x.permute(0, 3, 1, 2).contiguous()
+class PreprocessAtari(tf.keras.layers.Layer):
+    def call(self, x, **kwargs):
+        #x = tf.transpose(x, (0, 3, 1, 2)) Don't transpose because in tensorflow, channels is last features
         return x / 255.
 
-
 def create_atari_q_network(ob_dim, num_actions):
-    return nn.Sequential(
+    ob_dim = list(ob_dim)
+    ob_dim[2] = 4 # Not 1 but 4 because we stack 4 frames to be inputs
+    return tf.keras.Sequential([
+        tf.keras.Input(shape = ob_dim),
         PreprocessAtari(),
-        nn.Conv2d(in_channels=4, out_channels=32, kernel_size=8, stride=4),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
-        nn.ReLU(),
-        Flatten(),
-        nn.Linear(3136, 512),  # 3136 hard-coded based on img size + CNN layers
-        nn.ReLU(),
-        nn.Linear(512, num_actions),
-    )
+        tf.keras.layers.Conv2D(filters=32, kernel_size=8, strides=4, padding='valid'),
+        tf.keras.layers.ReLU(),
+        tf.keras.layers.Conv2D(filters=64, kernel_size=4, strides=2, padding='valid'),
+        tf.keras.layers.ReLU(),
+        tf.keras.layers.Conv2D(filters=64, kernel_size=3, strides=1, padding='valid'),
+        tf.keras.layers.ReLU(),
+        tf.keras.layers.Flatten(),
+        tf.keras.layers.Dense(units=512),
+        tf.keras.layers.ReLU(),
+        tf.keras.layers.Dense(units=num_actions)
+    ])
+
+
 
 def atari_exploration_schedule(num_timesteps):
     return PiecewiseSchedule(
@@ -149,10 +146,10 @@ def atari_optimizer(num_timesteps):
     )
 
     return OptimizerSpec(
-        constructor=optim.Adam,
+        constructor=tf.keras.optimizers.Adam,
         optim_kwargs=dict(
-            lr=1e-3,
-            eps=1e-4
+            learning_rate=1e-3,
+            epsilon=1e-4
         ),
         learning_rate_schedule=lambda t: lr_schedule.value(t),
     )
@@ -160,9 +157,9 @@ def atari_optimizer(num_timesteps):
 
 def lander_optimizer():
     return OptimizerSpec(
-        constructor=optim.Adam,
+        constructor=tf.keras.optimizers.Adam,
         optim_kwargs=dict(
-            lr=1,
+            learning_rate=1,
         ),
         learning_rate_schedule=lambda epoch: 1e-3,  # keep init learning rate
     )

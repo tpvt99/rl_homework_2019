@@ -1,10 +1,6 @@
 from .base_critic import BaseCritic
-import torch
-import torch.optim as optim
-from torch.nn import utils
-from torch import nn
+import tensorflow as tf
 
-from cs285.infrastructure import pytorch_util as ptu
 
 
 class DQNCritic(BaseCritic):
@@ -28,17 +24,16 @@ class DQNCritic(BaseCritic):
         network_initializer = hparams['q_func']
         self.q_net = network_initializer(self.ob_dim, self.ac_dim)
         self.q_net_target = network_initializer(self.ob_dim, self.ac_dim)
+
         self.optimizer = self.optimizer_spec.constructor(
-            self.q_net.parameters(),
             **self.optimizer_spec.optim_kwargs
         )
-        self.learning_rate_scheduler = optim.lr_scheduler.LambdaLR(
-            self.optimizer,
-            self.optimizer_spec.learning_rate_schedule,
-        )
-        self.loss = nn.SmoothL1Loss()  # AKA Huber loss
-        self.q_net.to(ptu.device)
-        self.q_net_target.to(ptu.device)
+        #self.learning_rate_scheduler = optim.lr_scheduler.LambdaLR(
+        #    self.optimizer,
+        #    self.optimizer_spec.learning_rate_schedule,
+        #)
+        self.loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.SUM)  # AKA Huber loss
+
 
     def update(self, ob_no, ac_na, next_ob_no, reward_n, terminal_n):
         """
@@ -56,52 +51,61 @@ class DQNCritic(BaseCritic):
             returns:
                 nothing
         """
-        ob_no = ptu.from_numpy(ob_no)
-        ac_na = ptu.from_numpy(ac_na).to(torch.long)
-        next_ob_no = ptu.from_numpy(next_ob_no)
-        reward_n = ptu.from_numpy(reward_n)
-        terminal_n = ptu.from_numpy(terminal_n)
+        #ob_no = ob_no
+        #ac_na = ac_na
+        #next_ob_no = next_ob_no
+        #reward_n = ptu.from_numpy(reward_n)
+        #terminal_n = ptu.from_numpy(terminal_n)
 
-        qa_t_values = self.q_net(ob_no)
-        q_t_values = torch.gather(qa_t_values, 1, ac_na.unsqueeze(1)).squeeze(1)
-        
-        # TODO compute the Q-values from the target network 
-        qa_tp1_values = TODO
+        with tf.GradientTape() as tape:
+            # Get the q_values(obs, act)
+            qa_t_values = self.q_net(ob_no)
+            # Get the q_values(obs) with act is implicitly as ac_na
+            assert len(ac_na.shape) == 1, "To be workable, this ac_na must has shape of (batch_size,)"
+            index = tf.transpose(tf.stack([tf.range(ac_na.shape[0]), ac_na]), (1,0))
+            q_t_values = tf.gather_nd(qa_t_values, index)
 
-        if self.double_q:
-            # You must fill this part for Q2 of the Q-learning portion of the homework.
-            # In double Q-learning, the best action is selected using the Q-network that
-            # is being updated, but the Q-value for this action is obtained from the
-            # target Q-network. See page 5 of https://arxiv.org/pdf/1509.06461.pdf for more details.
-            TODO
-        else:
-            q_tp1, _ = qa_tp1_values.max(dim=1)
+            # TODO compute the Q-values from the target network
+            qa_tp1_values = self.q_net_target(next_ob_no)
 
-        # TODO compute targets for minimizing Bellman error
-        # HINT: as you saw in lecture, this would be:
-            #currentReward + self.gamma * qValuesOfNextTimestep * (not terminal)
-        target = TODO
-        target = target.detach()
+            if self.double_q:
+                # You must fill this part for Q2 of the Q-learning portion of the homework.
+                # In double Q-learning, the best action is selected using the Q-network that
+                # is being updated, but the Q-value for this action is obtained from the
+                # target Q-network. See page 5 of https://arxiv.org/pdf/1509.06461.pdf for more details.
+                qa_tp1_values_of_current = self.q_net(next_ob_no)
+                max_acts = tf.reduce_max(qa_tp1_values_of_current, axis=1)
+                index = tf.transpose(tf.stack([tf.range(max_acts.shape[0]), max_acts]), (1, 0))
+                q_tp1 = tf.gather_nd(qa_tp1_values, index)
+            else:
+                q_tp1 = tf.math.reduce_max(qa_tp1_values, axis=1)
 
-        assert q_t_values.shape == target.shape
-        loss = self.loss(q_t_values, target)
+            # TODO compute targets for minimizing Bellman error
+            # HINT: as you saw in lecture, this would be:
+                #currentReward + self.gamma * qValuesOfNextTimestep * (not terminal)
+            target = reward_n + self.gamma * q_tp1 * (1 - terminal_n)
+            target = target.numpy() # Convert to numpy to stop the gradients
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        utils.clip_grad_value_(self.q_net.parameters(), self.grad_norm_clipping)
-        self.optimizer.step()
+            assert q_t_values.shape == target.shape
+            loss = self.loss(target, q_t_values)
+
+        gradients = tape.gradient(loss, self.q_net.trainable_variables)
+        gradients = [tf.clip_by_value(gradient, clip_value_min=-self.grad_norm_clipping,
+                                      clip_value_max=self.grad_norm_clipping) for gradient in gradients]
+        self.optimizer.apply_gradients(zip(gradients, self.q_net.trainable_variables))
 
         return {
-            'Training Loss': ptu.to_numpy(loss),
+                'Training Loss': loss.numpy(),
         }
 
     def update_target_network(self):
         for target_param, param in zip(
-                self.q_net_target.parameters(), self.q_net.parameters()
+                self.q_net_target.trainable_variables, self.q_net.trainable_variables
         ):
-            target_param.data.copy_(param.data)
+            target_param.assign(param)
+        pass
 
     def qa_values(self, obs):
-        obs = ptu.from_numpy(obs)
+        #obs = ptu.from_numpy(obs)
         qa_values = self.q_net(obs)
-        return ptu.to_numpy(qa_values)
+        return qa_values.numpy()
