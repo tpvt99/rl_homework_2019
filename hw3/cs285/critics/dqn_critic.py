@@ -1,7 +1,13 @@
 from .base_critic import BaseCritic
 import tensorflow as tf
 
+class CustomLambdaLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, initialLR: float, lr_lambda):
+        self.initialLR = initialLR
+        self.lr_lambda = lr_lambda
 
+    def __call__(self, step):
+        return self.initialLR * self.lr_lambda(step)
 
 class DQNCritic(BaseCritic):
 
@@ -25,14 +31,14 @@ class DQNCritic(BaseCritic):
         self.q_net = network_initializer(self.ob_dim, self.ac_dim)
         self.q_net_target = network_initializer(self.ob_dim, self.ac_dim)
 
-        self.optimizer = self.optimizer_spec.constructor(
-            **self.optimizer_spec.optim_kwargs
+        self.learning_rate_scheduler = CustomLambdaLRSchedule(
+            initialLR=self.optimizer_spec.optim_kwargs['learning_rate'],
+            lr_lambda=self.optimizer_spec.learning_rate_schedule,
         )
-        #self.learning_rate_scheduler = optim.lr_scheduler.LambdaLR(
-        #    self.optimizer,
-        #    self.optimizer_spec.learning_rate_schedule,
-        #)
-        self.loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.SUM)  # AKA Huber loss
+        self.optimizer = self.optimizer_spec.constructor(
+            self.learning_rate_scheduler
+        )
+        self.loss = tf.keras.losses.Huber()  # AKA Huber loss
 
 
     def update(self, ob_no, ac_na, next_ob_no, reward_n, terminal_n):
@@ -65,6 +71,10 @@ class DQNCritic(BaseCritic):
             index = tf.transpose(tf.stack([tf.range(ac_na.shape[0]), ac_na]), (1,0))
             q_t_values = tf.gather_nd(qa_t_values, index)
 
+            # Another way to find q_t_values using mask
+            action_masks = tf.one_hot(ac_na, self.ac_dim)
+            masked_q_t = tf.reduce_sum(action_masks * qa_t_values, axis=-1)
+
             # TODO compute the Q-values from the target network
             qa_tp1_values = self.q_net_target(next_ob_no)
 
@@ -84,14 +94,14 @@ class DQNCritic(BaseCritic):
             # HINT: as you saw in lecture, this would be:
                 #currentReward + self.gamma * qValuesOfNextTimestep * (not terminal)
             target = reward_n + self.gamma * q_tp1 * (1 - terminal_n)
-            target = target.numpy() # Convert to numpy to stop the gradients
+            target = target.numpy()
 
             assert q_t_values.shape == target.shape
+
             loss = self.loss(target, q_t_values)
 
         gradients = tape.gradient(loss, self.q_net.trainable_variables)
-        gradients = [tf.clip_by_value(gradient, clip_value_min=-self.grad_norm_clipping,
-                                      clip_value_max=self.grad_norm_clipping) for gradient in gradients]
+        gradients = [tf.clip_by_norm(gradient, self.grad_norm_clipping) for gradient in gradients]
         self.optimizer.apply_gradients(zip(gradients, self.q_net.trainable_variables))
 
         return {
