@@ -34,6 +34,10 @@ class MPCPolicy(BasePolicy):
         # TODO(Q1) uniformly sample trajectories and return an array of
         # dimensions (num_sequences, horizon, self.ac_dim) in the range
         # [self.low, self.high]
+        random_action_sequences = []
+        for i in range(num_sequences * horizon):
+            random_action_sequences.append(np.random.uniform(low=self.low, high=self.high, size=(self.ac_dim,)))
+        random_action_sequences = np.array(random_action_sequences).reshape((num_sequences, horizon, self.ac_dim))
         return random_action_sequences
 
     def get_action(self, obs):
@@ -58,8 +62,8 @@ class MPCPolicy(BasePolicy):
             predicted_sum_of_rewards_per_model, axis=0)  # [ens, N] --> N
 
         # pick the action sequence and return the 1st element of that sequence
-        best_action_sequence = None  # TODO (Q2)
-        action_to_take = None  # TODO (Q2)
+        best_action_sequence = np.argmax(predicted_rewards)  # TODO (Q2)
+        action_to_take = candidate_action_sequences[best_action_sequence][0]  # TODO (Q2)
         return action_to_take[None]  # Unsqueeze the first index
 
     def calculate_sum_of_rewards(self, obs, candidate_action_sequences, model):
@@ -87,4 +91,22 @@ class MPCPolicy(BasePolicy):
         # Hint: Remember that the model can process observations and actions
         #       in batch, which can be much faster than looping through each
         #       action sequence.
+
+        seq_rewards = []
+        if obs.ndim < 2: # Need to duplicate obs to have shape [N, D_obs]
+            obs = np.broadcast_to(obs, shape=(candidate_action_sequences.shape[0], obs.shape[0]))
+        assert obs.shape == (candidate_action_sequences.shape[0], self.ob_dim)
+
+        for horizon in range(candidate_action_sequences.shape[1]):
+            rewards, _ = self.env.get_reward(obs, candidate_action_sequences[:, horizon, :])  # shape for reach output is [N,]
+            seq_rewards.append(rewards)
+            obs = model.get_prediction(obs, candidate_action_sequences[:, horizon, :], self.data_statistics)
+            obs = obs.numpy()
+
+
+        seq_rewards = np.stack(seq_rewards, axis=1) # shape [N, horizon,]
+
+        sum_of_rewards = np.sum(seq_rewards, axis=-1)
+        assert sum_of_rewards.ndim == 1
+
         return sum_of_rewards
